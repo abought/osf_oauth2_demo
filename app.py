@@ -105,7 +105,7 @@ def home():
 @app.route('/login/', methods=['GET'])
 def login():
     osf = OAuth2Session(client_id=settings.CLIENT_ID, redirect_uri=settings.CALLBACK_URL)
-    authorization_url, state = osf.authorization_url(settings.AUTH_BASE_URL, approval_prompt='true')
+    authorization_url, state = osf.authorization_url(settings.AUTH_BASE_URL, approval_prompt='force')
     session['oauth_state'] = state
     return redirect(authorization_url)
 

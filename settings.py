@@ -12,8 +12,8 @@ API_BASE_URL = 'http://localhost:8000/v2/'
 
 ######## OAUTH2 CLIENT SETTINGS ##########
 # Describe the application as registered on the OSF
-# TODO: If the callback URL is not registered (or does not match one that is registered), you will get a
-#   "successful login" screen rather than a confirmation page. This is not intuitive, so make sure the
+# NOTE: If the callback URL is not registered (or does not match one that is registered), you will get a
+#   "successful login" screen from CAS rather than a confirmation page. This is not intuitive, so make sure the
 #   callback URL you provide below exactly matches the one used by your application.
 
 # This file contains fake locally generated data; never commit production secret data to Github. Use env vars instead
