@@ -151,4 +151,4 @@ if __name__ == '__main__':
         os.environ['DEBUG'] = '1'
         os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
 
-    app.run()
+    app.run(port=5001)

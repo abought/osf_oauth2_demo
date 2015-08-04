@@ -17,7 +17,7 @@ API_BASE_URL = 'http://localhost:8000/v2/'
 #   callback URL you provide below exactly matches the one used by your application.
 
 # This file contains fake locally generated data; never commit production secret data to Github. Use env vars instead
-CALLBACK_URL = 'http://localhost:5000/callback'  # Must exactly match the URL registered with app
+CALLBACK_URL = 'http://localhost:5001/callback'  # Must exactly match the URL registered with app
 CLIENT_ID = os.environ.get('OSF_OAUTH_CLIENT_ID',
                            'b90cf426f99849988d648a0a68987a22')
 CLIENT_SECRET = os.environ.get('OSF_OAUTH_CLIENT_SECRET',
