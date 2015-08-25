@@ -6,9 +6,11 @@ This is a demonstration application, only. This is not the recommended way to ha
 """
 __author__ = 'andyboughton'
 
+import httplib as http
 import os
+import uuid
 
-from flask import Flask, abort, redirect, request, session, url_for
+from flask import Flask, redirect, request, session, url_for
 import furl
 import requests
 from requests_oauthlib import OAuth2Session
@@ -19,10 +21,16 @@ import settings
 app = Flask(__name__, static_folder='bower_components')
 
 
+# Keep track of authorizations granted. This is not persistent and will be wiped whenever the server restarts
+#   (to facilitate end to end testing of new features). Dict of form {uid: token}
+USER_STORAGE = {}
+
+
 #### Utility functions
 def token_updater(token):
     """Store the newest version of the token"""
-    session['oauth_token'] = token
+    uid = session['uid']
+    USER_STORAGE[uid] = token
 
 
 def get_request_client(token_dict):
@@ -80,8 +88,10 @@ class ApiV2(object):
         self.client = client or requests
 
     def get_user_id(self):
-        url = api_v2_url("/users/me")
+        url = api_v2_url('/users/me')
         res = self.client.get(url)
+        # Raise exception if bad error code
+        res.raise_for_status()
         data = res.json()['data']
 
         return data['id']
@@ -89,6 +99,7 @@ class ApiV2(object):
     def get_projects_count(self, filters=None):
         url = api_v2_url('/users/me/nodes', params=filters)
         res = self.client.get(url)
+        res.raise_for_status()
         return res.json()['links']['meta']['total']
 
 
@@ -96,9 +107,14 @@ class ApiV2(object):
 @app.route('/', methods=['GET'])
 def home():
     """Display auth screen, or redirect to the action, as appropriate"""
-    token = session.get('oauth_token')
+    uid = session.get('uid')
+    if uid is None:
+        session['uid'] = uuid.uuid4().hex
+
+    token = USER_STORAGE.get(uid)
     if token is None:
         return redirect(url_for('login'))
+
     return redirect(url_for('graph_projects'))
 
 
@@ -129,16 +145,20 @@ def callback():
 @app.route('/graph/', methods=['GET'])
 def graph_projects():
     """If the user is logged in and has registered an access token, perform queries"""
-    token = session.get('oauth_token')
-    if token is None:
-        # Login page indirectly redirects here; don't create a circular redirect.
-        abort(403)
+    uid = session.get('uid')
+    if uid is None:
+        return redirect(url_for('home'))
+
+    token = USER_STORAGE.get(uid)
 
     client = get_request_client(token)
     api = ApiV2(client=client)
 
-    public_count = api.get_projects_count(filters={'filter[public]': 'true'})
-    private_count = api.get_projects_count(filters={'filter[public]': 'false'})
+    try:
+        public_count = api.get_projects_count(filters={'filter[public]': 'true'})
+        private_count = api.get_projects_count(filters={'filter[public]': 'false'})
+    except http.HTTPException:
+        return "The token is expired or does not provide permission for this request"
 
     # TODO: Make this a graph
     return "You're logged in! You have {} public and {} private projects".format(public_count, private_count)
