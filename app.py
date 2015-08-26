@@ -125,7 +125,9 @@ def home():
 def login_common(scope_names_list=None):
     """Ask user to grant authorization with the specified scopes. Used by various login methods."""
     osf = OAuth2Session(client_id=settings.CLIENT_ID, redirect_uri=settings.CALLBACK_URL, scope=scope_names_list)
-    authorization_url, state = osf.authorization_url(settings.AUTH_BASE_URL, approval_prompt='force')
+    authorization_url, state = osf.authorization_url(settings.AUTH_BASE_URL,
+                                                     approval_prompt='force',
+                                                     access_type='online')
     print "Auth request URL", authorization_url
     session['oauth_state'] = state
     return redirect(authorization_url)
@@ -159,9 +161,20 @@ def login_with_full_read_scope():
 
 
 @app.route('/login_with_two_scopes', methods=['GET'])
-def login_with_full_read_scope():
+def login_with_two_scopes():
     """Request access grant, including two separate scopes (make sure CAS handles the character correctly)"""
-    scopes = ['osf.nodes.all+read', 'osf.users.all+read']
+    #scopes = ['osf.nodes.all+read', 'osf.users.all+read']
+    scopes=['nodes.create', 'user']
+    return login_common(scope_names_list=scopes)
+
+
+@app.route('/login_as_admin/', methods=['GET'])
+def login_as_admin():
+    """
+    Request access grant, with admin level permissions
+    """
+    #scopes = ['osf.admin']
+    scopes = ['everything_under_the_sun']
     return login_common(scope_names_list=scopes)
 
 
