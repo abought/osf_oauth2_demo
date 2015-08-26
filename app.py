@@ -32,6 +32,10 @@ def token_updater(token):
     uid = session['uid']
     USER_STORAGE[uid] = token
 
+    print "Token details: "
+    from pprint import pprint as pp
+    pp(token)
+
 
 def get_request_client(token_dict):
     """
@@ -113,17 +117,52 @@ def home():
 
     token = USER_STORAGE.get(uid)
     if token is None:
-        return redirect(url_for('login'))
+        return redirect(url_for('login_bare'))
 
     return redirect(url_for('graph_projects'))
 
 
-@app.route('/login/', methods=['GET'])
-def login():
-    osf = OAuth2Session(client_id=settings.CLIENT_ID, redirect_uri=settings.CALLBACK_URL)
+def login_common(scope_names_list=None):
+    """Ask user to grant authorization with the specified scopes. Used by various login methods."""
+    osf = OAuth2Session(client_id=settings.CLIENT_ID, redirect_uri=settings.CALLBACK_URL, scope=scope_names_list)
     authorization_url, state = osf.authorization_url(settings.AUTH_BASE_URL, approval_prompt='force')
+    print "Auth request URL", authorization_url
     session['oauth_state'] = state
     return redirect(authorization_url)
+
+
+@app.route('/login_bare/', methods=['GET'])
+def login_bare():
+    """Request access grant, but do not specify any scopes"""
+    return login_common()
+
+
+@app.route('/login_with_user_scope/', methods=['GET'])
+def login_with_user_scope():
+    """Request access grant, including user scope"""
+    scopes = ['osf.users.all+read']
+    return login_common(scope_names_list=scopes)
+
+
+@app.route('/login_with_project_scope', methods=['GET'])
+def login_with_project_scope():
+    """Request access grant, including nodes (but not users)"""
+    scopes = ['osf.nodes.all+read']
+    return login_common(scope_names_list=scopes)
+
+
+@app.route('/login_with_full_read_scope', methods=['GET'])
+def login_with_full_read_scope():
+    """Request access grant, including nodes (but not users)"""
+    scopes = ['osf.full+read']
+    return login_common(scope_names_list=scopes)
+
+
+@app.route('/login_with_two_scopes', methods=['GET'])
+def login_with_full_read_scope():
+    """Request access grant, including two separate scopes (make sure CAS handles the character correctly)"""
+    scopes = ['osf.nodes.all+read', 'osf.users.all+read']
+    return login_common(scope_names_list=scopes)
 
 
 @app.route('/callback/', methods=['GET'])
@@ -131,6 +170,8 @@ def callback():
     """The oauth app redirects the user here; perform logic to fetch access token and redirect to a target url"""
     osf = OAuth2Session(settings.CLIENT_ID, redirect_uri=settings.CALLBACK_URL, state=session['oauth_state'])
     auth_response = request.url
+
+    print "Auth response", auth_response
 
     # TODO: The token request fails (with CAS errors) when redirect_uri is not specified; is this a CAS bug?
     token = osf.fetch_token(settings.TOKEN_REQUEST_URL,
@@ -140,6 +181,13 @@ def callback():
 
     token_updater(token)
     return redirect(url_for("graph_projects"))
+
+
+@app.route('/reset/', methods=['GET'])
+def dump_tokens():
+    """For debugging purposes: provide a quick way to drop all token data saved in memory. (will this be
+    enough to force a new authorization grant request?)"""
+    USER_STORAGE.clear()
 
 
 @app.route('/graph/', methods=['GET'])
