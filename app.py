@@ -186,7 +186,7 @@ def login_as_admin():
 
 
 @app.route('/login_nonexistent/', methods=['GET'])
-def login_as_admin():
+def login_as_nonexistent():
     """
     Request access grant, with a scope that does not exist. Expected behavior: grant fails.
     """
