@@ -95,15 +95,19 @@ class ApiV2(object):
         url = api_v2_url('/users/me')
         res = self.client.get(url)
         # Raise exception if bad error code
-        res.raise_for_status()
+        if res.status_code != 200:
+            print res.content
+            return "--Could not fetch user name--"
         data = res.json()['data']
 
         return data['id']
 
     def get_projects_count(self, filters=None):
-        url = api_v2_url('/users/me/nodes', params=filters)
+        url = api_v2_url('/nodes', params=filters)
         res = self.client.get(url)
-        res.raise_for_status()
+        if res.status_code != 200:
+            print res.content
+            return "--Could not fetch projects list--"
         return res.json()['links']['meta']['total']
 
 
@@ -135,46 +139,59 @@ def login_common(scope_names_list=None):
 
 @app.route('/login_bare/', methods=['GET'])
 def login_bare():
-    """Request access grant, but do not specify any scopes"""
+    """Request access grant, but do not specify any scopes. Expected behavior: grant fails"""
     return login_common()
 
 
 @app.route('/login_with_user_scope/', methods=['GET'])
 def login_with_user_scope():
-    """Request access grant, including user scope"""
+    """Request access grant, including user scope. Expected behavior: grant succeeds"""
     scopes = ['osf.users.all+read']
+    #scopes = ['user']
     return login_common(scope_names_list=scopes)
 
 
 @app.route('/login_with_project_scope', methods=['GET'])
 def login_with_project_scope():
-    """Request access grant, including nodes (but not users)"""
+    """Request access grant, including nodes (but not users). Expected behavior: grant succeeds"""
     scopes = ['osf.nodes.all+read']
+    #scopes = ['nodes.create']
     return login_common(scope_names_list=scopes)
 
 
 @app.route('/login_with_full_read_scope', methods=['GET'])
 def login_with_full_read_scope():
-    """Request access grant, including nodes (but not users)"""
+    """Request access grant, including nodes (but not users). Expected behavior: grant succeeds"""
     scopes = ['osf.full+read']
+    #scopes = ['users.profile']
     return login_common(scope_names_list=scopes)
 
 
 @app.route('/login_with_two_scopes', methods=['GET'])
 def login_with_two_scopes():
-    """Request access grant, including two separate scopes (make sure CAS handles the character correctly)"""
-    #scopes = ['osf.nodes.all+read', 'osf.users.all+read']
-    scopes=['nodes.create', 'user']
+    """Request access grant, including two separate scopes (make sure CAS handles the character correctly). Expected behavior: grant succeeds"""
+    scopes = ['osf.nodes.all+read', 'osf.users.all+read']
+    #scopes=['nodes.create', 'user']
     return login_common(scope_names_list=scopes)
 
 
 @app.route('/login_as_admin/', methods=['GET'])
 def login_as_admin():
     """
-    Request access grant, with admin level permissions
+    Request access grant, with admin level permissions. Expected behavior: grant succeeds
     """
-    #scopes = ['osf.admin']
-    scopes = ['everything_under_the_sun']
+    scopes = ['osf.admin']
+    #scopes = ['everything_under_the_sun']
+    return login_common(scope_names_list=scopes)
+
+
+@app.route('/login_nonexistent/', methods=['GET'])
+def login_as_admin():
+    """
+    Request access grant, with a scope that does not exist. Expected behavior: grant fails.
+    """
+    scopes = ['nonexistent_scope']
+    #scopes = ['everything_under_the_sun']
     return login_common(scope_names_list=scopes)
 
 
@@ -216,13 +233,14 @@ def graph_projects():
     api = ApiV2(client=client)
 
     try:
+        user = api.get_user_id()
         public_count = api.get_projects_count(filters={'filter[public]': 'true'})
         private_count = api.get_projects_count(filters={'filter[public]': 'false'})
     except http.HTTPException:
         return "The token is expired or does not provide permission for this request"
 
     # TODO: Make this a graph
-    return "You're logged in! You have {} public and {} private projects".format(public_count, private_count)
+    return "You're logged in, {}! You have {} public and {} private projects".format(user, public_count, private_count)
 
 
 if __name__ == '__main__':
