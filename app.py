@@ -4,7 +4,6 @@ Flask application. Modeled in part on https://requests-oauthlib.readthedocs.org/
 This is a demonstration application, only. This is not the recommended way to handle secret info in production,
     and contains minimal error handling at best.
 """
-__author__ = 'andyboughton'
 
 import httplib as http
 import os
@@ -13,12 +12,13 @@ import uuid
 from flask import Flask, redirect, request, session, url_for
 import furl
 import requests
+from requests import exceptions
 from requests_oauthlib import OAuth2Session
 
 import settings
 
 
-app = Flask(__name__, static_folder='bower_components')
+app = Flask(__name__)
 
 
 # Keep track of authorizations granted. This is not persistent and will be wiped whenever the server restarts
@@ -26,21 +26,22 @@ app = Flask(__name__, static_folder='bower_components')
 USER_STORAGE = {}
 
 
-#### Utility functions
+# Utility functions
 def token_updater(token):
     """Store the newest version of the token"""
+    uid = session.get('uid')
+    if uid is None:
+        session['uid'] = uuid.uuid4().hex
+
     uid = session['uid']
     USER_STORAGE[uid] = token
-
-    print "Token details: "
-    from pprint import pprint as pp
-    pp(token)
 
 
 def get_request_client(token_dict):
     """
-    DRY request client
-    :param token_dict: Token data returned from OAuth server (including access and refresh tokens)
+    Create a request client configured for OAuth with the appropriate access tokens for a given user
+
+    :param token_dict: Token data returned from OAuth server (including access and refresh tokens for a user)
     :return: Preconfigured oauth2 client
     """
     refresh_kwargs = {'client_id': settings.CLIENT_ID,
@@ -56,7 +57,7 @@ def get_request_client(token_dict):
     return client
 
 
-#### API Handlers
+# API Handlers
 def api_v2_url(path_str,
                params=None,
                base_route=settings.API_BASE_URL,
@@ -95,23 +96,38 @@ class ApiV2(object):
         url = api_v2_url('/users/me')
         res = self.client.get(url)
         # Raise exception if bad error code
-        if res.status_code != 200:
-            print res.content
-            return "--Could not fetch user name--"
-        data = res.json()['data']
+        try:
+            res.raise_for_status()
+        except exceptions.HTTPError as e:
+            # print res.content
+            raise e
 
+        data = res.json()['data']
         return data['id']
 
     def get_projects_count(self, filters=None):
         url = api_v2_url('/nodes', params=filters)
         res = self.client.get(url)
-        if res.status_code != 200:
-            print res.content
-            return "--Could not fetch projects list--"
+        # Raise exception if bad error code
+        try:
+            res.raise_for_status()
+        except exceptions.HTTPError as e:
+            # print res.content
+            raise e
         return res.json()['links']['meta']['total']
 
+    def get_applications(self):
+        url = api_v2_url('/applications')
+        res = self.client.get(url)
+        try:
+            res.raise_for_status()
+        except exceptions.HTTPError as e:
+            # print res.content
+            raise e
+        return res.json()
 
-#### Routes
+
+# Routes
 @app.route('/', methods=['GET'])
 def home():
     """Display auth screen, or redirect to the action, as appropriate"""
@@ -132,7 +148,6 @@ def login_common(scope_names_list=None):
     authorization_url, state = osf.authorization_url(settings.AUTH_BASE_URL,
                                                      approval_prompt='force',
                                                      access_type='online')
-    print "Auth request URL", authorization_url
     session['oauth_state'] = state
     return redirect(authorization_url)
 
@@ -143,45 +158,13 @@ def login_bare():
     return login_common()
 
 
-@app.route('/login_with_user_scope/', methods=['GET'])
-def login_with_user_scope():
-    """Request access grant, including user scope. Expected behavior: grant succeeds"""
-    scopes = ['osf.users.all+read']
-    #scopes = ['user']
-    return login_common(scope_names_list=scopes)
-
-
-@app.route('/login_with_project_scope', methods=['GET'])
-def login_with_project_scope():
-    """Request access grant, including nodes (but not users). Expected behavior: grant succeeds"""
-    scopes = ['osf.nodes.all+read']
-    #scopes = ['nodes.create']
-    return login_common(scope_names_list=scopes)
-
-
-@app.route('/login_with_full_read_scope', methods=['GET'])
-def login_with_full_read_scope():
-    """Request access grant, including nodes (but not users). Expected behavior: grant succeeds"""
-    scopes = ['osf.full+read']
-    #scopes = ['users.profile']
-    return login_common(scope_names_list=scopes)
-
-
-@app.route('/login_with_two_scopes', methods=['GET'])
-def login_with_two_scopes():
-    """Request access grant, including two separate scopes (make sure CAS handles the character correctly). Expected behavior: grant succeeds"""
-    scopes = ['osf.nodes.all+read', 'osf.users.all+read']
-    #scopes=['nodes.create', 'user']
-    return login_common(scope_names_list=scopes)
-
-
 @app.route('/login_as_admin/', methods=['GET'])
 def login_as_admin():
     """
-    Request access grant, with admin level permissions. Expected behavior: grant succeeds
+    Request access grant, with admin level permissions. Expected behavior: grant fails (admin is recognized,
+    but never issued)
     """
     scopes = ['osf.admin']
-    #scopes = ['everything_under_the_sun']
     return login_common(scope_names_list=scopes)
 
 
@@ -191,7 +174,29 @@ def login_as_nonexistent():
     Request access grant, with a scope that does not exist. Expected behavior: grant fails.
     """
     scopes = ['nonexistent_scope']
-    #scopes = ['everything_under_the_sun']
+    return login_common(scope_names_list=scopes)
+
+
+@app.route('/login_with_full_read_scope/', methods=['GET'])
+def login_with_full_read_scope():
+    """Request access grant, including nodes (but not users). Expected behavior: grant succeeds"""
+    scopes = ['osf.full_read']
+    return login_common(scope_names_list=scopes)
+
+
+@app.route('/login_with_full_write_scope/', methods=['GET'])
+def login_with_full_write_scope():
+    """Request access grant, including nodes (but not users). Expected behavior: grant succeeds"""
+    scopes = ['osf.full_write']
+    return login_common(scope_names_list=scopes)
+
+
+@app.route('/login_with_two_scopes/', methods=['GET'])
+def login_with_two_scopes():
+    """Request access grant, including two separate scopes (make sure CAS handles the character correctly).
+    Expected behavior: grant succeeds"""
+    scopes = ['osf.full_read', 'osf.full_write']
+
     return login_common(scope_names_list=scopes)
 
 
@@ -201,16 +206,53 @@ def callback():
     osf = OAuth2Session(settings.CLIENT_ID, redirect_uri=settings.CALLBACK_URL, state=session['oauth_state'])
     auth_response = request.url
 
-    print "Auth response", auth_response
-
-    # TODO: The token request fails (with CAS errors) when redirect_uri is not specified; is this a CAS bug?
     token = osf.fetch_token(settings.TOKEN_REQUEST_URL,
                             client_secret=settings.CLIENT_SECRET,
                             authorization_response=auth_response,
                             verify=settings.REQUIRE_HTTPS)
 
     token_updater(token)
-    return redirect(url_for("graph_projects"))
+    return redirect(url_for("permissions_checker"))
+
+
+@app.route('/permissions_checker/', methods=['GET'])
+def permissions_checker():
+    """Test various forms of access"""
+    uid = session.get('uid')
+    if uid is None:
+        return redirect(url_for('home'))
+
+    token = USER_STORAGE.get(uid)
+
+    client = get_request_client(token)
+    api = ApiV2(client=client)
+
+    try:
+        api.get_user_id()
+    except exceptions.HTTPError:
+        can_read_users = False
+    else:
+        can_read_users = True
+
+    try:
+        api.get_projects_count()
+    except exceptions.HTTPError:
+        can_read_projects = False
+    else:
+        can_read_projects = True
+
+    try:
+        api.get_applications()
+    except exceptions.HTTPError:
+        can_read_applications = False
+    else:
+        can_read_applications = True
+
+    return """
+    Can read users: {} <br>
+    Can read projects: {} <br>
+    Can read applications: {} <br>
+    """.format(can_read_users, can_read_projects, can_read_applications)
 
 
 @app.route('/reset/', methods=['GET'])
@@ -239,7 +281,6 @@ def graph_projects():
     except http.HTTPException:
         return "The token is expired or does not provide permission for this request"
 
-    # TODO: Make this a graph
     return "You're logged in, {}! You have {} public and {} private projects".format(user, public_count, private_count)
 
 
