@@ -21,8 +21,8 @@ import settings
 app = Flask(__name__)
 
 
-# Keep track of authorizations granted. This is not persistent and will be wiped whenever the server restarts
-#   (to facilitate end to end testing of new features). Dict of form {uid: token}
+# Keep track of authorizations (tokens) granted. This is not persistent and will be wiped whenever the server restarts
+#   (to facilitate end to end testing of new features). Dict of form {user_id: token_data}
 USER_STORAGE = {}
 
 
@@ -137,17 +137,20 @@ def home():
 
     token = USER_STORAGE.get(uid)
     if token is None:
-        return redirect(url_for('login_bare'))
+        return redirect(url_for('login_with_full_read_scope'))
 
-    return redirect(url_for('graph_projects'))
+    return redirect(url_for('permissions_checker'))
 
 
 def login_common(scope_names_list=None):
     """Ask user to grant authorization with the specified scopes. Used by various login methods."""
-    osf = OAuth2Session(client_id=settings.CLIENT_ID, redirect_uri=settings.CALLBACK_URL, scope=scope_names_list)
+    osf = OAuth2Session(client_id=settings.CLIENT_ID,
+                        redirect_uri=settings.CALLBACK_URL,
+                        scope=scope_names_list)
     authorization_url, state = osf.authorization_url(settings.AUTH_BASE_URL,
                                                      approval_prompt='force',
                                                      access_type='online')
+    # State is a value used for CSRF prevention, and is sent along with auth to callback URL after user logs in
     session['oauth_state'] = state
     return redirect(authorization_url)
 
@@ -156,16 +159,6 @@ def login_common(scope_names_list=None):
 def login_bare():
     """Request access grant, but do not specify any scopes. Expected behavior: grant fails"""
     return login_common()
-
-
-@app.route('/login_as_admin/', methods=['GET'])
-def login_as_admin():
-    """
-    Request access grant, with admin level permissions. Expected behavior: grant fails (admin is recognized,
-    but never issued)
-    """
-    scopes = ['osf.admin']
-    return login_common(scope_names_list=scopes)
 
 
 @app.route('/login_nonexistent/', methods=['GET'])
@@ -179,21 +172,21 @@ def login_as_nonexistent():
 
 @app.route('/login_with_full_read_scope/', methods=['GET'])
 def login_with_full_read_scope():
-    """Request access grant, including nodes (but not users). Expected behavior: grant succeeds"""
+    """Request access grant. (read only access) Expected behavior: grant succeeds"""
     scopes = ['osf.full_read']
     return login_common(scope_names_list=scopes)
 
 
 @app.route('/login_with_full_write_scope/', methods=['GET'])
 def login_with_full_write_scope():
-    """Request access grant, including nodes (but not users). Expected behavior: grant succeeds"""
+    """Request access grant. (read and write access) Expected behavior: grant succeeds"""
     scopes = ['osf.full_write']
     return login_common(scope_names_list=scopes)
 
 
 @app.route('/login_with_two_scopes/', methods=['GET'])
 def login_with_two_scopes():
-    """Request access grant, including two separate scopes (make sure CAS handles the character correctly).
+    """Request access grant, including two separate scopes.
     Expected behavior: grant succeeds"""
     scopes = ['osf.full_read', 'osf.full_write']
 
@@ -212,7 +205,7 @@ def callback():
                             verify=settings.REQUIRE_HTTPS)
 
     token_updater(token)
-    return redirect(url_for("permissions_checker"))
+    return redirect(url_for('permissions_checker'))
 
 
 @app.route('/permissions_checker/', methods=['GET'])
@@ -255,15 +248,8 @@ def permissions_checker():
     """.format(can_read_users, can_read_projects, can_read_applications)
 
 
-@app.route('/reset/', methods=['GET'])
-def dump_tokens():
-    """For debugging purposes: provide a quick way to drop all token data saved in memory. (will this be
-    enough to force a new authorization grant request?)"""
-    USER_STORAGE.clear()
-
-
-@app.route('/graph/', methods=['GET'])
-def graph_projects():
+@app.route('/query/', methods=['GET'])
+def query_as_user():
     """If the user is logged in and has registered an access token, perform queries"""
     uid = session.get('uid')
     if uid is None:
@@ -279,9 +265,16 @@ def graph_projects():
         public_count = api.get_projects_count(filters={'filter[public]': 'true'})
         private_count = api.get_projects_count(filters={'filter[public]': 'false'})
     except http.HTTPException:
-        return "The token is expired or does not provide permission for this request"
+        return "The token is expired, or does not provide permission for some or all parts of this request"
 
     return "You're logged in, {}! You have {} public and {} private projects".format(user, public_count, private_count)
+
+
+@app.route('/reset/', methods=['GET'])
+def dump_tokens():
+    """For debugging purposes: provide a quick way to drop all token data saved in memory. (will this be
+    enough to force a new authorization grant request?)"""
+    USER_STORAGE.clear()
 
 
 if __name__ == '__main__':
